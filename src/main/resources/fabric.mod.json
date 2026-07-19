@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "dfast",
+  "version": "${version}",
+  "name": "DFast",
+  "description": "Don Fast — zero-config, hardware-aware performance meta-optimizer chuyên Windows + Intel + Nvidia RTX 2000+. Tự nhận phần cứng, tự tối ưu JVM & stack, thêm lớp Windows-native mỏng.",
+  "authors": [ "DonQuaan (yangdawn)" ],
+  "contact": {
+    "homepage": "https://github.com/DonQuaan/DFast",
+    "sources": "https://github.com/DonQuaan/DFast",
+    "issues": "https://github.com/DonQuaan/DFast/issues"
+  },
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0-with-DFast-Addendum",
+  "icon": "assets/dfast/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [ "com.donquaan.dfast.DFast" ],
+    "client": [ "com.donquaan.dfast.DFastClient" ]
+  },
+  "mixins": [ "dfast.mixins.json" ],
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "sodium": "*",
+    "lithium": "*"
+  }
+}
