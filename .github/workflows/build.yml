@@ -42,3 +42,5 @@ jobs:
         with:
           files: build/libs/*.jar
           generate_release_notes: true
+          # Tag có dấu '-' (vd v0.2.0-beta.1) → đánh dấu Pre-release (beta); v0.2.0 thuần → bản chính thức
+          prerelease: ${{ contains(github.ref, '-') }}
