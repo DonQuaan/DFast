@@ -30,6 +30,13 @@ public final class LatencyClientModule {
     private static long lastFrameNanos = 0L;
     private static long lastLowRefresh = 0L;
 
+    /**
+     * Delta lớn hơn ngưỡng này (1s) coi là GIÁN ĐOẠN (menu/alt-tab/tải thế giới) chứ
+     * không phải 1 frame thật — HudRenderCallback ngừng chạy khi không vẽ HUD, nên khi
+     * quay lại delta sẽ = cả khoảng gián đoạn. Bỏ mẫu đó để khỏi đầu độc avg/1%-low.
+     */
+    private static final long GAP_THRESHOLD_NANOS = 1_000_000_000L;
+
     private LatencyClientModule() {}
 
     public static void init() {
@@ -59,9 +66,14 @@ public final class LatencyClientModule {
         // chặn CPU vượt GPU (chờ fence frame cũ) — đầu phần xử lý frame này
         limiter.beginFrame();
 
-        // frametime = khoảng cách giữa 2 lần HUD render liên tiếp
+        // frametime = khoảng cách giữa 2 lần HUD render liên tiếp.
+        // Bỏ mẫu sau gián đoạn (menu/alt-tab/tải): delta khổng lồ sẽ đầu độc avg/1%-low
+        // suốt ~2048 frame — chính chỉ số gate của mod. Chỉ ghi frame thật.
         if (lastFrameNanos != 0L) {
-            harness.record(now - lastFrameNanos);
+            long delta = now - lastFrameNanos;
+            if (delta < GAP_THRESHOLD_NANOS) {
+                harness.record(delta);
+            }
         }
         lastFrameNanos = now;
 
