@@ -1,4 +1,5 @@
 import argparse
+import collections
 import json
 import random
 import statistics
@@ -13,10 +14,20 @@ Z_ALPHA = 1.959964
 Z_POWER = 0.841621
 
 
+def signature(directory, data):
+    system = json.loads((Path(directory) / "system.json").read_text(encoding="utf-8"))
+    start = (data.get("environment") or {}).get("start") or {}
+    return (start.get("power"), start.get("refreshRate"), system.get("gl", {}).get("renderer"),
+            system.get("options", {}).get("framebuffer"))
+
+
 def load(directory):
     path = Path(directory) / "result.json"
     data = json.loads(path.read_text(encoding="utf-8"))
+    data["_signature"] = signature(directory, data)
     problems = []
+    if not (data.get("environment") or {}).get("stable", False):
+        problems.append(f"environment changed during the run or was not recorded: {data.get('environment')}")
     if data.get("status") != "ok":
         problems.append(f"status={data.get('status')} {data.get('failure')}")
     if not data.get("histogramCheck", {}).get("passed", False):
@@ -84,12 +95,16 @@ def main():
     if len(dirs_a) < 2 or len(dirs_b) < 2:
         parser.error("each group needs at least 2 runs")
 
+    loaded = [[(directory, *load(directory)) for directory in dirs] for dirs in (dirs_a, dirs_b)]
+    counts = collections.Counter(data["_signature"] for group in loaded for _, data, _ in group)
+    majority = counts.most_common(1)[0][0]
     groups = []
     rejected = []
-    for dirs in (dirs_a, dirs_b):
+    for group in loaded:
         runs = []
-        for directory in dirs:
-            data, problems = load(directory)
+        for directory, data, problems in group:
+            if data["_signature"] != majority:
+                problems.append(f"environment {data['_signature']} differs from the majority {majority}")
             if problems:
                 rejected.append({"run": directory, "problems": problems})
             else:
@@ -101,11 +116,14 @@ def main():
 
     rows = compare(groups[0], groups[1], args.iterations, args.seed)
     report = {"mode": "A/A" if args.aa else "A/B", "runsA": len(groups[0]), "runsB": len(groups[1]),
+              "environment": {"power": majority[0], "refreshRate": majority[1], "renderer": majority[2],
+                              "framebuffer": majority[3]},
               "rejected": rejected, "metrics": rows}
     if args.json:
         print(json.dumps(report, indent=2))
         return
-    print(f"{report['mode']}  runs A={report['runsA']} B={report['runsB']}  rejected={len(rejected)}")
+    print(f"{report['mode']}  runs A={report['runsA']} B={report['runsB']}  rejected={len(rejected)}  "
+          f"environment={report['environment']}")
     for row in rows:
         verdict = "significant" if row["significant"] else "no detectable difference"
         if row["significant"]:

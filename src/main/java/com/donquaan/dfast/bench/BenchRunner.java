@@ -3,6 +3,7 @@ package com.donquaan.dfast.bench;
 import com.donquaan.dfast.DFast;
 import com.donquaan.dfast.DFastLog;
 import com.donquaan.dfast.HardwareProfile;
+import com.donquaan.dfast.core.BenchEnvironment;
 import com.donquaan.dfast.core.BenchSpec;
 import com.donquaan.dfast.core.CameraPath;
 import com.donquaan.dfast.core.FrameRecorder;
@@ -20,6 +21,7 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -40,6 +42,8 @@ import net.minecraft.world.level.WorldDataConfiguration;
 import net.minecraft.world.level.levelgen.WorldOptions;
 import net.minecraft.world.level.levelgen.presets.WorldPresets;
 import net.minecraft.world.phys.Vec3;
+import oshi.SystemInfo;
+import oshi.hardware.PowerSource;
 
 public final class BenchRunner {
     private enum Phase { WAIT_MENU, LOADING, RUNNING, DONE }
@@ -75,6 +79,7 @@ public final class BenchRunner {
     private boolean vsync;
     private int maxFps;
     private TutorialSteps tutorialStep;
+    private BenchEnvironment startEnvironment;
 
     private BenchRunner(BenchSpec spec, Path outDir) {
         this.spec = spec;
@@ -176,6 +181,7 @@ public final class BenchRunner {
         ticks = 0;
         phase = Phase.RUNNING;
         place(minecraft.player, true);
+        startEnvironment = environment(minecraft);
         DFastLog.info("bench world ready spawn=" + spawn.toShortString());
     }
 
@@ -223,10 +229,11 @@ public final class BenchRunner {
         measuring = false;
         phase = Phase.DONE;
         FrameRecorder.Result result = recorder.result();
+        BenchEnvironment endEnvironment = startEnvironment == null ? null : environment(minecraft);
         try {
             Files.createDirectories(outDir);
             Gson gson = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
-            Files.writeString(outDir.resolve("result.json"), gson.toJson(result(result, failure)), StandardCharsets.UTF_8);
+            Files.writeString(outDir.resolve("result.json"), gson.toJson(result(result, failure, endEnvironment)), StandardCharsets.UTF_8);
             Files.writeString(outDir.resolve("system.json"), gson.toJson(system(minecraft)), StandardCharsets.UTF_8);
             Files.writeString(outDir.resolve("frametimes.txt"),
                     LongStream.of(recorder.frames()).mapToObj(Long::toString).collect(Collectors.joining("\n", "", "\n")),
@@ -245,7 +252,7 @@ public final class BenchRunner {
         minecraft.stop();
     }
 
-    private JsonObject result(FrameRecorder.Result result, String failure) {
+    private JsonObject result(FrameRecorder.Result result, String failure, BenchEnvironment endEnvironment) {
         JsonObject json = new JsonObject();
         json.addProperty("schema", 1);
         json.addProperty("status", failure == null ? "ok" : "failed");
@@ -286,6 +293,11 @@ public final class BenchRunner {
             checkJson.add(metric.name(), pair);
         }
         json.add("histogramCheck", checkJson);
+        JsonObject environmentJson = new JsonObject();
+        environmentJson.add("start", environmentJson(startEnvironment));
+        environmentJson.add("end", environmentJson(endEnvironment));
+        environmentJson.addProperty("stable", startEnvironment != null && startEnvironment.sameAs(endEnvironment));
+        json.add("environment", environmentJson);
         return json;
     }
 
@@ -323,6 +335,28 @@ public final class BenchRunner {
                 .sorted()
                 .forEach(mods::add);
         json.add("mods", mods);
+        return json;
+    }
+
+    private static BenchEnvironment environment(Minecraft minecraft) {
+        BenchEnvironment.Power power;
+        try {
+            List<PowerSource> sources = new SystemInfo().getHardware().getPowerSources();
+            int online = (int) sources.stream().filter(PowerSource::isPowerOnLine).count();
+            power = BenchEnvironment.classify(sources.size(), online);
+        } catch (RuntimeException | LinkageError e) {
+            power = BenchEnvironment.Power.UNKNOWN;
+        }
+        return new BenchEnvironment(power, minecraft.getWindow().getRefreshRate());
+    }
+
+    private static JsonObject environmentJson(BenchEnvironment environment) {
+        if (environment == null) {
+            return null;
+        }
+        JsonObject json = new JsonObject();
+        json.addProperty("power", environment.power().name().toLowerCase(Locale.ROOT));
+        json.addProperty("refreshRate", environment.refreshRate());
         return json;
     }
 
