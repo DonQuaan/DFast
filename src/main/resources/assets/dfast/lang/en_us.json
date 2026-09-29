@@ -2,8 +2,12 @@
   "category.dfast": "DFast",
   "key.dfast.toggle_hud": "Toggle frame-time HUD",
   "dfast.hud.title": "DFast",
-  "dfast.hud.fps": "FPS %s (window average)",
-  "dfast.hud.frame": "Frame %s ms",
-  "dfast.hud.low": "1%% low %s FPS",
+  "dfast.hud.fps": "FPS %s (5 s average)",
+  "dfast.hud.frame": "Frame %s ms · p99 %s ms",
+  "dfast.hud.low": "1%% low %s · 0.1%% low %s FPS (60 s)",
+  "dfast.hud.owner": "Render-ahead: %s",
+  "dfast.hud.owner.sodium": "Sodium",
+  "dfast.hud.owner.dfast": "DFast",
+  "dfast.hud.owner.off": "off",
   "dfast.hud.gpu_wait": "GPU wait %s ms"
 }

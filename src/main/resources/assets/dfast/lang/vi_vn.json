@@ -2,8 +2,12 @@
   "category.dfast": "DFast",
   "key.dfast.toggle_hud": "Bật/tắt HUD thời gian khung hình",
   "dfast.hud.title": "DFast",
-  "dfast.hud.fps": "FPS %s (trung bình cửa sổ)",
-  "dfast.hud.frame": "Khung hình %s ms",
-  "dfast.hud.low": "1%% thấp nhất %s FPS",
+  "dfast.hud.fps": "FPS %s (trung bình 5 giây)",
+  "dfast.hud.frame": "Khung hình %s ms · p99 %s ms",
+  "dfast.hud.low": "1%% thấp %s · 0.1%% thấp %s FPS (60 giây)",
+  "dfast.hud.owner": "Render-ahead: %s",
+  "dfast.hud.owner.sodium": "Sodium",
+  "dfast.hud.owner.dfast": "DFast",
+  "dfast.hud.owner.off": "tắt",
   "dfast.hud.gpu_wait": "Chờ GPU %s ms"
 }
