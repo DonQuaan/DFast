@@ -79,6 +79,7 @@ public final class BenchRunner {
     private final Path outDir;
     private final FrameRecorder recorder;
     private final FrameTimeStats live;
+    private final BenchWatchdog watchdog;
     private final double[] pose = new double[5];
     private Phase phase = Phase.WAIT_MENU;
     private CameraPath path;
@@ -107,6 +108,8 @@ public final class BenchRunner {
         int capacity = Math.min(spec.durationSeconds() * MAX_FRAMES_PER_SECOND, MAX_RECORDED_FRAMES);
         recorder = new FrameRecorder(capacity);
         live = new FrameTimeStats((spec.durationSeconds() + 1L) * 1_000_000_000L, Math.min(capacity, 1 << 20));
+        watchdog = new BenchWatchdog(outDir,
+                LOAD_TIMEOUT_NANOS / 1_000_000_000L + spec.warmupSeconds() + spec.durationSeconds());
     }
 
     public static void init(Path gameDir) {
@@ -124,6 +127,7 @@ public final class BenchRunner {
         String runId = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + "-" + spec.preset();
         BenchRunner runner = new BenchRunner(spec, gameDir.resolve("dfast").resolve("bench").resolve(runId));
         DFastLog.info("bench requested " + spec);
+        runner.watchdog.start();
         ClientTickEvents.END_CLIENT_TICK.register(runner::tick);
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> runner.finish(client, "the game was closed during the run"));
         HudRenderCallback.EVENT.register((graphics, deltaTracker) -> runner.frame());
@@ -142,6 +146,7 @@ public final class BenchRunner {
     }
 
     private void tick(Minecraft minecraft) {
+        watchdog.tick();
         switch (phase) {
             case WAIT_MENU -> {
                 if (minecraft.getOverlay() == null && minecraft.level == null && minecraft.screen != null) {
@@ -315,6 +320,7 @@ public final class BenchRunner {
                 DFastLog.info("options.txt was saved during the bench and has been saved again with the player's values");
             }
         }
+        watchdog.done(failure == null);
         minecraft.stop();
     }
 

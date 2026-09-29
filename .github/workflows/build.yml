@@ -95,6 +95,7 @@ jobs:
           echo "${{ matrix.sha512 }}  run/mods/sodium.jar" | sha512sum -c -
 
       - name: Run bench in the real client
+        timeout-minutes: 20
         run: >
           xvfb-run -a -s "-screen 0 1280x720x24"
           ./gradlew runBench --stacktrace
