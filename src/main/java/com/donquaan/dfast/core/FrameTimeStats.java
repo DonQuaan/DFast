@@ -99,7 +99,7 @@ public final class FrameTimeStats {
             return;
         }
         out.averageFps = size * 1_000_000_000.0 / sumNanos;
-        out.p99Ms = slowRankMeanNanos(size - (int) Math.ceil(0.99 * size) + 1) / 1_000_000.0;
+        out.p99Ms = slowRankMeanNanos(size - FrameRecorder.nearestRank(size, 990) + 1) / 1_000_000.0;
         out.onePercentLowFps = slowestAverageFps(Math.max(1, size / 100));
         out.pointOnePercentLowFps = slowestAverageFps(Math.max(1, size / 1000));
     }

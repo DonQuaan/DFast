@@ -13,6 +13,18 @@ repositories {
     mavenCentral()
 }
 
+loom {
+    runs {
+        bench {
+            client()
+            configName = 'DFast Bench'
+            ideConfigGenerated false
+            runDir 'run'
+            vmArg "-Ddfast.bench=${project.findProperty('dfast.bench') ?: 'short'}"
+        }
+    }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings loom.officialMojangMappings()

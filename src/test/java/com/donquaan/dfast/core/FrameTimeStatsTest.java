@@ -158,7 +158,7 @@ class FrameTimeStatsTest {
         stats.summarize(summary);
         long[] sorted = frames.clone();
         Arrays.sort(sorted);
-        double exactP99 = sorted[(int) Math.ceil(0.99 * n) - 1] / 1e6;
+        double exactP99 = sorted[(99 * n + 99) / 100 - 1] / 1e6;
         assertEquals(exactP99, summary.p99Ms, exactP99 / 64.0);
         double exactLow = exactSlowestFps(sorted, n / 100);
         assertEquals(exactLow, summary.onePercentLowFps, exactLow / 64.0);
