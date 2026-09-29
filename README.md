@@ -1,28 +1,38 @@
-# DFast (Don Fast)
+# DFast
 
-**Zero-config, hardware-aware performance meta-optimizer cho Minecraft** — chuyên **Windows + Intel + Nvidia RTX 2000+**.
+A performance companion mod for Minecraft (Fabric). It does not replace Sodium or Lithium. This beta ships a frame-time HUD and launcher advice matched to your Java version and RAM, and it leaves render-ahead control to Sodium when Sodium is installed. Further modules are added one version at a time.
 
-DFast **không** phải một render engine mới (Sodium/Nvidium/Lithium đã làm rất tốt phần đó). DFast là **lớp điều phối + tự-cấu-hình** mà chưa mod nào làm: cài **1 mod DFast**, nó tự nhận phần cứng máy bạn rồi tối ưu JVM & stack cho đúng máy đó — bạn **không phải chỉnh gì**.
+## What 0.2.0-beta.3 does
 
-## Ba trụ
-1. **Auto-tune** — nhận CPU/RAM/GPU/OS → chọn JVM profile + stack tối ưu (ví dụ: máy ≤16GB dùng Compact Object Headers giảm ~22% RAM; máy ≥32GB dùng Generational ZGC cho frametime mượt).
-2. **Anti-conflict** — đảm bảo các mod tối ưu không đánh nhau (chỉ 1 lighting engine, đúng cặp version…).
-3. **Windows-native micro-layer** (Panama FFM) — high-res frame-pacing timer, process priority/EcoQoS, soft P-core hint. Thứ mod cross-platform bỏ trống.
+| Feature | Details |
+|---|---|
+| Frame-time HUD | Press **F9** (rebindable in Controls). Shows average FPS over the last 2048 frames, the last frame time and the 1% low. Hidden with F1 and while the F3 screen is open. |
+| Render-ahead ownership | With Sodium installed, DFast runs no fence loop of its own and leaves the CPU render-ahead limit to Sodium. Without Sodium its experimental limiter stays **off** unless you set `renderQueueLimiter=true` in `config/dfast-latency.properties`. It has not been benchmarked yet. |
+| JVM advice | Reads your Java version and RAM and writes matching launcher arguments to `dfast/dfast.log`: G1 or Generational ZGC, a heap size, and Compact Object Headers only on Java versions that accept the flag. DFast never edits your launcher. |
 
-## Nền tảng
-- Minecraft **1.21.1** · Fabric Loader 0.19.3 · Java **21+** (khuyến nghị 25) · Fabric API.
-- Tối ưu cho Nvidia RTX 2000+ (Turing trở lên), CPU Intel hybrid, Windows 11.
+Diagnostics go to `.minecraft/dfast/dfast.log`; `latest.log` gets a single line.
 
-## Cài đặt
-Tải file `.jar` mới nhất từ [Releases](https://github.com/DonQuaan/DFast/releases), thả vào thư mục `mods/`.
+## Requirements
+
+- Minecraft **1.21.1**, Fabric Loader 0.19.3+, Fabric API 0.116.13+
+- Java 21+ (Java 25 recommended)
+
+## Install
+
+Download `dfast-<version>.jar` from [Releases](https://github.com/DonQuaan/DFast/releases) and put it in your `mods` folder.
 
 ## Build
-```bash
+
+```sh
 ./gradlew build
-# jar ở build/libs/
 ```
 
-## License
-**PolyForm Noncommercial 1.0.0 + DonQuaan Addendum** — source-available, **phi thương mại**. Được sửa/phân phối/custom tùy ý nhưng phải **ghi nguồn DonQuaan/DFast**, **cấm thương mại**, và **cấm tổ chức >3 thành viên**. Xem [LICENSE.md](LICENSE.md).
+The jar is written to `build/libs/`.
 
-*Tác giả: DonQuaan (yangdawn).*
+## Development
+
+DFast is developed with AI assistance (Claude). Every change is reviewed and tested before release.
+
+## License
+
+PolyForm Noncommercial 1.0.0 with the DonQuaan Addendum: source-available and non-commercial. Credit **DonQuaan (yangdawn) — https://github.com/DonQuaan/DFast**, no commercial use, and no use by organisations with more than 3 members. See [LICENSE.md](LICENSE.md).

@@ -1,4 +1,9 @@
 {
   "category.dfast": "DFast",
-  "key.dfast.toggle_hud": "Toggle Zero-Latency HUD"
+  "key.dfast.toggle_hud": "Toggle frame-time HUD",
+  "dfast.hud.title": "DFast",
+  "dfast.hud.fps": "FPS %s (window average)",
+  "dfast.hud.frame": "Frame %s ms",
+  "dfast.hud.low": "1%% low %s FPS",
+  "dfast.hud.gpu_wait": "GPU wait %s ms"
 }

@@ -1,0 +1,9 @@
+{
+  "category.dfast": "DFast",
+  "key.dfast.toggle_hud": "Bật/tắt HUD thời gian khung hình",
+  "dfast.hud.title": "DFast",
+  "dfast.hud.fps": "FPS %s (trung bình cửa sổ)",
+  "dfast.hud.frame": "Khung hình %s ms",
+  "dfast.hud.low": "1%% thấp nhất %s FPS",
+  "dfast.hud.gpu_wait": "Chờ GPU %s ms"
+}

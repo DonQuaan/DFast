@@ -1,111 +1,110 @@
 package com.donquaan.dfast.latency;
 
-import com.donquaan.dfast.DFast;
+import com.donquaan.dfast.DFastLog;
+import com.donquaan.dfast.core.FrameTimeStats;
+import com.donquaan.dfast.core.RenderAheadPolicy;
+import com.donquaan.dfast.core.RenderQueueLimiter;
+import com.donquaan.dfast.core.Text;
 import com.mojang.blaze3d.platform.InputConstants;
+import java.nio.file.Path;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
+import org.lwjgl.glfw.GLFW;
 
-/**
- * LatencyClientModule — điểm móc CLIENT của "Zero-Latency Mode" (DFast v0.2.0).
- *
- * <p>Dùng HOÀN TOÀN hook ổn định của fabric-api (HUD callback, keybind, client tick)
- * + LWJGL — KHÔNG mixin, KHÔNG native/FFM ở slice này → rủi ro sai mapping = 0, build
- * verify được qua CI. #2 NVAPI + #3 high-res timer (cần Java 22 FFM) làm ở slice sau.
- *
- * <p>Mỗi lần HUD render (1 lần/frame, trên render thread, có GL context):
- * chờ fence frame cũ (limiter) → đo frametime/1%-low (harness) → vẽ HUD nếu bật →
- * chèn fence frame mới.
- */
 public final class LatencyClientModule {
+    static final String KEY_TITLE = "dfast.hud.title";
+    static final String KEY_FPS = "dfast.hud.fps";
+    static final String KEY_FRAME = "dfast.hud.frame";
+    static final String KEY_LOW = "dfast.hud.low";
+    static final String KEY_GPU_WAIT = "dfast.hud.gpu_wait";
+    static final String KEY_TOGGLE = "key.dfast.toggle_hud";
+    static final String KEY_CATEGORY = "category.dfast";
 
+    private static final int FRAME_WINDOW = 2048;
+    private static final long GAP_NANOS = 1_000_000_000L;
+    private static final long HUD_REFRESH_NANOS = 250_000_000L;
+    private static final int TITLE_COLOR = 0xFFFFFF55;
+    private static final int TEXT_COLOR = 0xFF55FF55;
+    private static final Component TITLE = Component.translatable(KEY_TITLE);
+
+    private static final FrameTimeStats STATS = new FrameTimeStats(FRAME_WINDOW);
     private static LatencyConfig config;
-    private static LatencyHarness harness;
     private static RenderQueueLimiter limiter;
     private static KeyMapping toggleHud;
+    private static long lastFrameNanos;
+    private static long lastRefreshNanos;
+    private static FormattedCharSequence[] lines = new FormattedCharSequence[0];
 
-    private static long lastFrameNanos = 0L;
-    private static long lastLowRefresh = 0L;
+    private LatencyClientModule() {
+    }
 
-    /**
-     * Delta lớn hơn ngưỡng này (1s) coi là GIÁN ĐOẠN (menu/alt-tab/tải thế giới) chứ
-     * không phải 1 frame thật — HudRenderCallback ngừng chạy khi không vẽ HUD, nên khi
-     * quay lại delta sẽ = cả khoảng gián đoạn. Bỏ mẫu đó để khỏi đầu độc avg/1%-low.
-     */
-    private static final long GAP_THRESHOLD_NANOS = 1_000_000_000L;
-
-    private LatencyClientModule() {}
-
-    public static void init() {
-        config = LatencyConfig.load();
-        harness = new LatencyHarness();
-        limiter = new RenderQueueLimiter(config.framesInFlight, config.renderQueueLimiter);
-
+    public static void init(Path configDir) {
+        config = LatencyConfig.load(configDir.resolve("dfast-latency.properties"));
+        RenderAheadPolicy.Owner owner = RenderAheadPolicy.owner(
+                FabricLoader.getInstance().isModLoaded("sodium"), config.renderQueueLimiter());
+        if (owner == RenderAheadPolicy.Owner.DFAST) {
+            limiter = new RenderQueueLimiter(new LwjglFences(), config.framesInFlight(), DFastLog::warn);
+        }
+        DFastLog.info("render-ahead owner=" + owner);
         toggleHud = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.dfast.toggle_hud", InputConstants.Type.KEYSYM, config.hudKeyCode, "category.dfast"));
-
+                KEY_TOGGLE, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_F9, KEY_CATEGORY));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (toggleHud.consumeClick()) {
-                config.hudEnabled = !config.hudEnabled;
-                config.save();
+                config.toggleHud();
             }
         });
-
-        HudRenderCallback.EVENT.register((guiGraphics, deltaTracker) -> onHud(guiGraphics));
-
-        DFast.LOGGER.info("DFast Zero-Latency san sang: limiter={}, framesInFlight={}, HUD toggle=phim da gan (mac dinh F9)",
-                config.renderQueueLimiter, config.framesInFlight);
+        HudRenderCallback.EVENT.register((graphics, deltaTracker) -> onHud(graphics));
     }
 
-    private static void onHud(GuiGraphics g) {
+    private static void onHud(GuiGraphics graphics) {
+        if (limiter != null) {
+            limiter.beforeFrame();
+        }
         long now = System.nanoTime();
-
-        // chặn CPU vượt GPU (chờ fence frame cũ) — đầu phần xử lý frame này
-        limiter.beginFrame();
-
-        // frametime = khoảng cách giữa 2 lần HUD render liên tiếp.
-        // Bỏ mẫu sau gián đoạn (menu/alt-tab/tải): delta khổng lồ sẽ đầu độc avg/1%-low
-        // suốt ~2048 frame — chính chỉ số gate của mod. Chỉ ghi frame thật.
-        if (lastFrameNanos != 0L) {
-            long delta = now - lastFrameNanos;
-            if (delta < GAP_THRESHOLD_NANOS) {
-                harness.record(delta);
-            }
+        long delta = now - lastFrameNanos;
+        if (lastFrameNanos != 0L && delta < GAP_NANOS) {
+            STATS.record(delta);
         }
         lastFrameNanos = now;
-
-        // 1%-low tính giãn ~0.5s (O(n), không chạy mỗi frame)
-        if (now - lastLowRefresh > 500_000_000L) {
-            harness.refreshOnePercentLow();
-            lastLowRefresh = now;
+        Minecraft minecraft = Minecraft.getInstance();
+        if (config.hudEnabled() && !minecraft.options.hideGui && !minecraft.getDebugOverlay().showDebugScreen()) {
+            if (now - lastRefreshNanos >= HUD_REFRESH_NANOS) {
+                lines = hudLines();
+                lastRefreshNanos = now;
+            }
+            draw(graphics, minecraft);
         }
-
-        if (config.hudEnabled) {
-            drawHud(g);
+        if (limiter != null) {
+            limiter.afterFrame();
         }
-
-        // chèn fence cuối frame
-        limiter.endFrame();
     }
 
-    private static void drawHud(GuiGraphics g) {
-        Minecraft mc = Minecraft.getInstance();
-        int x = 4, y = 4;
-        int line = mc.font.lineHeight + 2;
-        int green = 0xFF55FF55;
-        g.drawString(mc.font, "DFast Zero-Latency", x, y, 0xFFFFFF55);
-        g.drawString(mc.font,
-                String.format("FPS %.0f   frame %.2fms", harness.avgFps(), harness.lastFrameMs()),
-                x, y + line, green);
-        g.drawString(mc.font,
-                String.format("1%%-low %.0f fps", harness.onePercentLowFps()),
-                x, y + line * 2, green);
-        String limit = limiter.isEnabled()
-                ? String.format("GPU sync %.2fms", limiter.lastWaitMs())
-                : "limiter OFF";
-        g.drawString(mc.font, limit, x, y + line * 3, green);
+    private static FormattedCharSequence[] hudLines() {
+        boolean waitLine = limiter != null && limiter.active();
+        FormattedCharSequence[] result = new FormattedCharSequence[waitLine ? 5 : 4];
+        result[0] = TITLE.getVisualOrderText();
+        result[1] = Component.translatable(KEY_FPS, Text.fixed(STATS.averageFps(), 0)).getVisualOrderText();
+        result[2] = Component.translatable(KEY_FRAME, Text.fixed(STATS.lastFrameMs(), 2)).getVisualOrderText();
+        result[3] = Component.translatable(KEY_LOW, Text.fixed(STATS.onePercentLowFps(), 0)).getVisualOrderText();
+        if (waitLine) {
+            result[4] = Component.translatable(KEY_GPU_WAIT, Text.fixed(limiter.lastWaitNanos() / 1_000_000.0, 2)).getVisualOrderText();
+        }
+        return result;
+    }
+
+    private static void draw(GuiGraphics graphics, Minecraft minecraft) {
+        int x = 4;
+        int y = 4;
+        int step = minecraft.font.lineHeight + 2;
+        for (int i = 0; i < lines.length; i++) {
+            graphics.drawString(minecraft.font, lines[i], x, y + i * step, i == 0 ? TITLE_COLOR : TEXT_COLOR);
+        }
     }
 }
