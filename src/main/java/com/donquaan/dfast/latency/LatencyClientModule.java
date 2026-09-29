@@ -15,7 +15,6 @@ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import org.lwjgl.glfw.GLFW;
@@ -35,6 +34,8 @@ public final class LatencyClientModule {
     private static final long HUD_REFRESH_NANOS = 250_000_000L;
     private static final int TITLE_COLOR = 0xFFFFFF55;
     private static final int TEXT_COLOR = 0xFF55FF55;
+    private static final int[] LINE_COLORS = {TITLE_COLOR, TEXT_COLOR, TEXT_COLOR, TEXT_COLOR, TEXT_COLOR, TEXT_COLOR};
+    private static final int HUD_MARGIN = 4;
 
     private final LatencyConfig config;
     private final RenderAheadPolicy.Owner owner;
@@ -46,8 +47,8 @@ public final class LatencyClientModule {
     private final FrameTimeStats longStats = new FrameTimeStats(LONG_WINDOW_NANOS, 1 << 18);
     private final FrameTimeStats.Summary shortSummary = new FrameTimeStats.Summary();
     private final FrameTimeStats.Summary longSummary = new FrameTimeStats.Summary();
+    private final HudCanvas canvas = new HudCanvas();
     private long lastRefreshNanos;
-    private FormattedCharSequence[] lines = new FormattedCharSequence[0];
 
     private LatencyClientModule(LatencyConfig config, RenderAheadPolicy.Owner owner, RenderQueueLimiter limiter) {
         this.config = config;
@@ -84,7 +85,7 @@ public final class LatencyClientModule {
                 config.toggleHud();
             }
         });
-        HudRenderCallback.EVENT.register((graphics, deltaTracker) -> module.onHud(graphics));
+        HudRenderCallback.EVENT.register((graphics, deltaTracker) -> module.onHud());
         return module;
     }
 
@@ -102,7 +103,7 @@ public final class LatencyClientModule {
         return owner == RenderAheadPolicy.Owner.DFAST && !limiting ? RenderAheadPolicy.Owner.OFF : owner;
     }
 
-    private void onHud(GuiGraphics graphics) {
+    private void onHud() {
         if (limiter != null) {
             limiter.beforeFrame();
         }
@@ -122,10 +123,10 @@ public final class LatencyClientModule {
         }
         if (config.hudEnabled() && !minecraft.options.hideGui && !minecraft.getDebugOverlay().showDebugScreen()) {
             if (now - lastRefreshNanos >= HUD_REFRESH_NANOS) {
-                lines = hudLines();
+                canvas.redraw(minecraft, hudLines(), LINE_COLORS, HUD_MARGIN, HUD_MARGIN, minecraft.font.lineHeight + 2);
                 lastRefreshNanos = now;
             }
-            draw(graphics, minecraft);
+            canvas.draw();
         }
         if (limiter != null) {
             limiter.afterFrame();
@@ -147,14 +148,5 @@ public final class LatencyClientModule {
             result[5] = Component.translatable(KEY_GPU_WAIT, Text.fixed(limiter.lastWaitNanos() / 1_000_000.0, 2)).getVisualOrderText();
         }
         return result;
-    }
-
-    private void draw(GuiGraphics graphics, Minecraft minecraft) {
-        int x = 4;
-        int y = 4;
-        int step = minecraft.font.lineHeight + 2;
-        for (int i = 0; i < lines.length; i++) {
-            graphics.drawString(minecraft.font, lines[i], x, y + i * step, i == 0 ? TITLE_COLOR : TEXT_COLOR);
-        }
     }
 }
