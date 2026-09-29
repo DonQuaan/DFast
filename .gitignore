@@ -21,3 +21,5 @@ CLAUDE.md
 PLAN.md
 PLAN-v0.2.0.md
 MASTER-PLAN.md
+__pycache__/
+*.pyc
