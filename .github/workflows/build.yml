@@ -34,6 +34,10 @@ jobs:
           printf 'a=1\n!note\n' > "$fixture/gradle.properties"
           if bash .github/scripts/no-comments.sh "$fixture"; then echo "checker missed a properties comment"; exit 1; fi
           printf 'a=1\n' > "$fixture/gradle.properties"
+          mkdir -p "$fixture/tools"
+          printf 'x = 1  \043 note\n' > "$fixture/tools/t.py"
+          if bash .github/scripts/no-comments.sh "$fixture"; then echo "checker missed a Python comment"; exit 1; fi
+          printf '#!/usr/bin/env python3\nx = 1\n' > "$fixture/tools/t.py"
           bash .github/scripts/no-comments.sh "$fixture"
 
       - name: Reject comments in project sources
@@ -112,7 +116,7 @@ jobs:
           if-no-files-found: warn
 
   release:
-    needs: build
+    needs: [ build, bench-smoke ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:

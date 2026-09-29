@@ -5,6 +5,7 @@ import java.util.Arrays;
 public final class FrameTimeStats {
     public static final class Summary {
         public int frames;
+        public long spanNanos;
         public double averageFps;
         public double lastFrameMs;
         public double p99Ms;
@@ -91,6 +92,8 @@ public final class FrameTimeStats {
     public void summarize(Summary out) {
         out.frames = size;
         out.lastFrameMs = lastNanos / 1_000_000.0;
+        out.spanNanos = size == 0 ? 0L
+                : Math.min(windowNanos, ends[(tail + size - 1) % ends.length] - (ends[tail] - durations[tail]));
         if (size == 0) {
             out.averageFps = 0.0;
             out.p99Ms = 0.0;

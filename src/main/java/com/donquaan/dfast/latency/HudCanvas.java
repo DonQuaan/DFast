@@ -71,6 +71,7 @@ final class HudCanvas {
         if (quad == null) {
             return;
         }
+        RenderSystem.disableDepthTest();
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         ShaderInstance shader = GameRenderer.getPositionTexShader();

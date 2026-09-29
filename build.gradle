@@ -50,6 +50,10 @@ processResources {
     }
 }
 
+tasks.withType(net.fabricmc.loom.task.AbstractRunTask).configureEach {
+    useXvfb = false
+}
+
 tasks.withType(net.fabricmc.loom.task.RunGameTask).configureEach {
     def runJava = project.findProperty('dfast.runJava')
     if (runJava) {

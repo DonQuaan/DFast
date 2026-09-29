@@ -1,8 +1,10 @@
 package com.donquaan.dfast.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.donquaan.dfast.core.FrameGate.Event;
+import java.lang.ref.WeakReference;
 import org.junit.jupiter.api.Test;
 
 class FrameGateTest {
@@ -42,6 +44,21 @@ class FrameGateTest {
         gate.next(0L, world, true);
         assertEquals(Event.FRAME, gate.next(3_000_000_000L, world, true));
         assertEquals(3_000_000_000L, gate.frameNanos());
+    }
+
+    @Test
+    void doesNotKeepAnOldScopeAlive() throws InterruptedException {
+        Object level = new Object();
+        WeakReference<Object> probe = new WeakReference<>(level);
+        gate.next(0L, level, true);
+        gate.next(10L, level, true);
+        level = null;
+        for (int i = 0; i < 100 && probe.get() != null; i++) {
+            System.gc();
+            Thread.sleep(10);
+        }
+        assertNull(probe.get());
+        assertEquals(Event.RESET, gate.next(20L, world, true));
     }
 
     @Test

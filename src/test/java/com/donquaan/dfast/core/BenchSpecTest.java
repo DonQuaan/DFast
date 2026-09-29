@@ -24,10 +24,16 @@ class BenchSpecTest {
         assertEquals("dfast-bench--7", spec.worldName());
     }
 
+    @Test
+    void longestAllowedRunFitsTheRecorderAtTenThousandFps() {
+        assertEquals(400, BenchSpec.parse("long,duration=400").durationSeconds());
+        assertTrue((long) BenchSpec.MAX_DURATION_SECONDS * 10_000 <= 1L << 22);
+    }
+
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {"  ", "medium", "short,seed", "short,=5", "short,speed=3", "short,seed=1,seed=2",
-            "short,duration=4", "short,duration=3601", "short,warmup=0", "short,radius=NaN", "short,pitch=91",
+            "short,duration=4", "short,duration=401", "short,warmup=0", "short,radius=NaN", "short,pitch=91",
             "short,height=abc", "short,seed=1.5"})
     void rejectsInvalidSpecs(String text) {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> BenchSpec.parse(text));

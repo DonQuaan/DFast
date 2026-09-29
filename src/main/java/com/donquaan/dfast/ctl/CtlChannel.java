@@ -16,6 +16,7 @@ import java.nio.file.StandardOpenOption;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
+import net.minecraft.network.chat.contents.TranslatableContents;
 
 public final class CtlChannel {
     private static final int POLL_TICKS = 10;
@@ -27,6 +28,7 @@ public final class CtlChannel {
     private final FrameTimeStats.Summary shortSummary = new FrameTimeStats.Summary();
     private final FrameTimeStats.Summary longSummary = new FrameTimeStats.Summary();
     private long offset;
+    private boolean discarding;
     private int ticks;
 
     private CtlChannel(Path dir, LatencyClientModule latency) throws IOException {
@@ -57,7 +59,10 @@ public final class CtlChannel {
         try {
             for (String line : readNewLines()) {
                 if (!line.isBlank()) {
-                    respond(handle(minecraft, line));
+                    JsonObject reply = handle(minecraft, line);
+                    if (reply != null) {
+                        respond(reply);
+                    }
                 }
             }
         } catch (IOException e) {
@@ -82,13 +87,30 @@ public final class CtlChannel {
             file.seek(offset);
             file.readFully(bytes);
         }
+        if (discarding) {
+            int newline = 0;
+            while (newline < bytes.length && bytes[newline] != '\n') {
+                newline++;
+            }
+            if (newline == bytes.length) {
+                offset += bytes.length;
+                return new String[0];
+            }
+            offset += newline + 1;
+            discarding = false;
+            return new String[0];
+        }
         int end = bytes.length;
         while (end > 0 && bytes[end - 1] != '\n') {
             end--;
         }
         if (end == 0 && bytes.length == MAX_READ_BYTES) {
             offset += bytes.length;
-            DFastLog.warn("ctl channel skipped a request longer than " + MAX_READ_BYTES + " bytes");
+            discarding = true;
+            JsonObject reply = new JsonObject();
+            reply.addProperty("ok", false);
+            reply.addProperty("error", "request longer than " + MAX_READ_BYTES + " bytes was skipped");
+            respond(reply);
             return new String[0];
         }
         offset += end;
@@ -120,9 +142,15 @@ public final class CtlChannel {
             }
             case "screenshot" -> {
                 String name = "dfast-ctl-" + System.currentTimeMillis() + ".png";
-                Screenshot.grab(minecraft.gameDirectory, name, minecraft.getMainRenderTarget(), message -> { });
-                reply.addProperty("ok", true);
-                reply.addProperty("file", minecraft.gameDirectory.toPath().resolve("screenshots").resolve(name).toString());
+                String file = minecraft.gameDirectory.toPath().resolve("screenshots").resolve(name).toString();
+                Screenshot.grab(minecraft.gameDirectory, name, minecraft.getMainRenderTarget(), message -> {
+                    boolean saved = message.getContents() instanceof TranslatableContents contents
+                            && "screenshot.success".equals(contents.getKey());
+                    reply.addProperty("ok", saved);
+                    reply.addProperty(saved ? "file" : "error", saved ? file : message.getString());
+                    respondQuietly(reply);
+                });
+                return null;
             }
             case "quit" -> {
                 reply.addProperty("ok", true);
@@ -164,7 +192,15 @@ public final class CtlChannel {
         return json;
     }
 
-    private void respond(JsonObject reply) throws IOException {
+    private synchronized void respond(JsonObject reply) throws IOException {
         Files.writeString(out, reply + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+
+    private void respondQuietly(JsonObject reply) {
+        try {
+            respond(reply);
+        } catch (IOException e) {
+            DFastLog.warn("ctl channel write failed: " + e);
+        }
     }
 }

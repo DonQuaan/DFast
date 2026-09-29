@@ -20,10 +20,11 @@ class BenchEnvironmentTest {
 
     @Test
     void aChangeInPowerOrRefreshRateIsNotTheSameEnvironment() {
-        BenchEnvironment start = new BenchEnvironment(Power.AC, 240);
-        assertTrue(start.sameAs(new BenchEnvironment(Power.AC, 240)));
-        assertFalse(start.sameAs(new BenchEnvironment(Power.AC, 60)));
-        assertFalse(start.sameAs(new BenchEnvironment(Power.BATTERY, 240)));
+        BenchEnvironment start = new BenchEnvironment(Power.AC, 240, false);
+        assertTrue(start.sameAs(new BenchEnvironment(Power.AC, 240, false)));
+        assertFalse(start.sameAs(new BenchEnvironment(Power.AC, 60, false)));
+        assertFalse(start.sameAs(new BenchEnvironment(Power.BATTERY, 240, false)));
+        assertFalse(start.sameAs(new BenchEnvironment(Power.AC, 240, true)));
         assertFalse(start.sameAs(null));
     }
 }

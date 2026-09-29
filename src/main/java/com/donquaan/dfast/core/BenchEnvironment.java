@@ -1,6 +1,6 @@
 package com.donquaan.dfast.core;
 
-public record BenchEnvironment(Power power, int refreshRate) {
+public record BenchEnvironment(Power power, int refreshRate, boolean fullscreen) {
     public enum Power { AC, BATTERY, NONE, UNKNOWN }
 
     public static Power classify(int sources, int online) {
@@ -14,6 +14,7 @@ public record BenchEnvironment(Power power, int refreshRate) {
     }
 
     public boolean sameAs(BenchEnvironment other) {
-        return other != null && power == other.power && refreshRate == other.refreshRate;
+        return other != null && power == other.power && refreshRate == other.refreshRate
+                && fullscreen == other.fullscreen;
     }
 }

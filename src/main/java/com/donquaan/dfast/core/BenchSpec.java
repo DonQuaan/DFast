@@ -7,10 +7,11 @@ import java.util.Set;
 public record BenchSpec(String preset, long seed, int warmupSeconds, int durationSeconds,
                         double radius, double height, float pitch) {
     public static final long DEFAULT_SEED = 2026L;
+    public static final int MAX_DURATION_SECONDS = 400;
 
     public BenchSpec {
         check("warmup", warmupSeconds, 1, 600);
-        check("duration", durationSeconds, 5, 3600);
+        check("duration", durationSeconds, 5, MAX_DURATION_SECONDS);
         check("radius", radius, 16, 512);
         check("height", height, -64, 320);
         check("pitch", pitch, -90, 90);

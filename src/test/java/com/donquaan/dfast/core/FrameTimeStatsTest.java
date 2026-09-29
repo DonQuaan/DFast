@@ -187,6 +187,24 @@ class FrameTimeStatsTest {
     }
 
     @Test
+    void spanReportsTheTimeActuallyCovered() {
+        FrameTimeStats stats = new FrameTimeStats(60 * SECOND, 1000);
+        long now = feed(stats, 0L, 10 * MS, 500);
+        stats.summarize(summary);
+        assertEquals(5 * SECOND, summary.spanNanos);
+        feed(stats, now, 10 * MS, 1000);
+        stats.summarize(summary);
+        assertEquals(1000, summary.frames);
+        assertEquals(10 * SECOND, summary.spanNanos);
+        FrameTimeStats windowed = new FrameTimeStats(SECOND, 4096);
+        feed(windowed, 0L, 300 * MS, 10);
+        windowed.summarize(summary);
+        assertEquals(SECOND, summary.spanNanos);
+        new FrameTimeStats(SECOND, 4).summarize(summary);
+        assertEquals(0L, summary.spanNanos);
+    }
+
+    @Test
     void rejectsInvalidConstruction() {
         assertThrows(IllegalArgumentException.class, () -> new FrameTimeStats(0L, 10));
         assertThrows(IllegalArgumentException.class, () -> new FrameTimeStats(SECOND, 0));

@@ -9,25 +9,36 @@ import com.donquaan.dfast.core.CameraPath;
 import com.donquaan.dfast.core.FrameRecorder;
 import com.donquaan.dfast.core.FrameTimeStats;
 import com.donquaan.dfast.core.HistogramCheck;
+import com.donquaan.dfast.core.JvmFlags;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.mojang.blaze3d.platform.Monitor;
+import com.mojang.blaze3d.platform.Window;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.GenericMessageScreen;
+import net.minecraft.client.gui.screens.LevelLoadingScreen;
+import net.minecraft.client.gui.screens.ProgressScreen;
+import net.minecraft.client.gui.screens.ReceivingLevelScreen;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.tutorial.TutorialSteps;
@@ -44,6 +55,7 @@ import net.minecraft.world.level.levelgen.presets.WorldPresets;
 import net.minecraft.world.phys.Vec3;
 import oshi.SystemInfo;
 import oshi.hardware.PowerSource;
+import org.lwjgl.glfw.GLFW;
 
 public final class BenchRunner {
     private enum Phase { WAIT_MENU, LOADING, RUNNING, DONE }
@@ -54,6 +66,7 @@ public final class BenchRunner {
     private static final int MAX_RECORDED_FRAMES = 1 << 22;
     private static final int UNLIMITED_FPS = 260;
     private static final long LOAD_TIMEOUT_NANOS = 600_000_000_000L;
+    private static final int FOREIGN_SCREEN_TICKS = 40;
     private static final List<String> SETUP_COMMANDS = List.of(
             "gamerule doDaylightCycle false",
             "gamerule doWeatherCycle false",
@@ -80,6 +93,13 @@ public final class BenchRunner {
     private int maxFps;
     private TutorialSteps tutorialStep;
     private BenchEnvironment startEnvironment;
+    private int foreignScreenTicks;
+    private int unfocusedTicks;
+    private int minimizedTicks;
+    private boolean worldCreated;
+    private boolean uncapped;
+    private Path optionsFile;
+    private FileTime optionsStamp;
 
     private BenchRunner(BenchSpec spec, Path outDir) {
         this.spec = spec;
@@ -105,6 +125,7 @@ public final class BenchRunner {
         BenchRunner runner = new BenchRunner(spec, gameDir.resolve("dfast").resolve("bench").resolve(runId));
         DFastLog.info("bench requested " + spec);
         ClientTickEvents.END_CLIENT_TICK.register(runner::tick);
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> runner.finish(client, "the game was closed during the run"));
         HudRenderCallback.EVENT.register((graphics, deltaTracker) -> runner.frame());
     }
 
@@ -124,6 +145,8 @@ public final class BenchRunner {
         switch (phase) {
             case WAIT_MENU -> {
                 if (minecraft.getOverlay() == null && minecraft.level == null && minecraft.screen != null) {
+                    optionsFile = minecraft.gameDirectory.toPath().resolve("options.txt");
+                    optionsStamp = stamp(optionsFile);
                     pauseOnLostFocus = minecraft.options.pauseOnLostFocus;
                     vsync = minecraft.options.enableVsync().get();
                     maxFps = minecraft.options.framerateLimit().get();
@@ -142,8 +165,14 @@ public final class BenchRunner {
             case LOADING -> {
                 if (minecraft.level != null && minecraft.player != null && minecraft.screen == null) {
                     start(minecraft);
+                } else if (minecraft.level == null && minecraft.screen != null && !loading(minecraft.screen)) {
+                    if (++foreignScreenTicks > FOREIGN_SCREEN_TICKS) {
+                        finish(minecraft, "loading stopped at " + minecraft.screen.getClass().getName());
+                    }
                 } else if (System.nanoTime() > loadDeadline) {
                     finish(minecraft, "world did not load within " + LOAD_TIMEOUT_NANOS / 1_000_000_000L + " s");
+                } else {
+                    foreignScreenTicks = 0;
                 }
             }
             case RUNNING -> run(minecraft);
@@ -152,12 +181,30 @@ public final class BenchRunner {
         }
     }
 
+    private static boolean loading(Screen screen) {
+        return screen instanceof GenericMessageScreen || screen instanceof LevelLoadingScreen
+                || screen instanceof ProgressScreen || screen instanceof ReceivingLevelScreen;
+    }
+
+    private static FileTime stamp(Path file) {
+        try {
+            return Files.exists(file) ? Files.getLastModifiedTime(file) : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     private void openWorld(Minecraft minecraft) {
         String name = spec.worldName();
         if (minecraft.getLevelSource().levelExists(name)) {
+            if (!Files.exists(minecraft.getLevelSource().getLevelPath(name).resolve("level.dat"))) {
+                finish(minecraft, "saves/" + name + " has no level.dat; delete that folder or use another seed");
+                return;
+            }
             minecraft.createWorldOpenFlows().openWorld(name, () -> finish(minecraft, "opening " + name + " was cancelled"));
             return;
         }
+        worldCreated = true;
         LevelSettings settings = new LevelSettings(name, GameType.CREATIVE, false, Difficulty.PEACEFUL, true,
                 new GameRules(), WorldDataConfiguration.DEFAULT);
         minecraft.createWorldOpenFlows().createFreshLevel(name, settings, new WorldOptions(spec.seed(), true, false),
@@ -195,11 +242,22 @@ public final class BenchRunner {
             finish(minecraft, "a screen was opened during measurement: " + minecraft.screen.getClass().getName());
             return;
         }
+        if (measuring && minecraft.getOverlay() != null) {
+            finish(minecraft, "a loading overlay appeared during measurement");
+            return;
+        }
+        if (measuring && !minecraft.isWindowActive()) {
+            unfocusedTicks++;
+        }
+        if (measuring && GLFW.glfwGetWindowAttrib(minecraft.getWindow().getWindow(), GLFW.GLFW_ICONIFIED) != 0) {
+            minimizedTicks++;
+        }
         ticks++;
         int warmupTicks = spec.warmupSeconds() * TICKS_PER_SECOND;
         int endTicks = warmupTicks + spec.durationSeconds() * TICKS_PER_SECOND;
         if (ticks == warmupTicks) {
             minecraft.getToasts().clear();
+            uncapped = !minecraft.options.enableVsync().get() && minecraft.options.framerateLimit().get() >= UNLIMITED_FPS;
             lastFrameNanos = 0L;
             measuring = true;
         }
@@ -226,6 +284,9 @@ public final class BenchRunner {
     }
 
     private void finish(Minecraft minecraft, String failure) {
+        if (phase == Phase.DONE) {
+            return;
+        }
         measuring = false;
         phase = Phase.DONE;
         FrameRecorder.Result result = recorder.result();
@@ -241,13 +302,18 @@ public final class BenchRunner {
             DFast.LOGGER.info("DFast bench {}: {} frames, {} avg FPS, results in {}", failure == null ? "ok" : "failed",
                     result.frames(), Math.round(result.averageFps()), outDir);
         } catch (IOException | RuntimeException e) {
-            DFast.LOGGER.error("DFast bench could not write results to {}", outDir, e);
+            DFastLog.warn("bench could not write results to " + outDir + ": " + e);
+            DFast.LOGGER.warn("DFast bench could not write results to {}: {}", outDir, e.toString());
         }
         if (optionsSaved) {
             minecraft.options.pauseOnLostFocus = pauseOnLostFocus;
             minecraft.options.enableVsync().set(vsync);
             minecraft.options.framerateLimit().set(maxFps);
             minecraft.options.tutorialStep = tutorialStep;
+            if (!Objects.equals(optionsStamp, stamp(optionsFile))) {
+                minecraft.options.save();
+                DFastLog.info("options.txt was saved during the bench and has been saved again with the player's values");
+            }
         }
         minecraft.stop();
     }
@@ -258,6 +324,7 @@ public final class BenchRunner {
         json.addProperty("status", failure == null ? "ok" : "failed");
         json.addProperty("failure", failure);
         json.addProperty("dfastVersion", version("dfast"));
+        json.addProperty("worldCreated", worldCreated);
         JsonObject specJson = new JsonObject();
         specJson.addProperty("preset", spec.preset());
         specJson.addProperty("seed", spec.seed());
@@ -267,7 +334,7 @@ public final class BenchRunner {
         specJson.addProperty("radius", spec.radius());
         specJson.addProperty("height", spec.height());
         specJson.addProperty("pitch", spec.pitch());
-        specJson.addProperty("uncapped", true);
+        specJson.addProperty("uncapped", uncapped);
         json.add("spec", specJson);
         json.addProperty("frames", result.frames());
         json.addProperty("seconds", result.seconds());
@@ -285,7 +352,8 @@ public final class BenchRunner {
         checkJson.addProperty("frames", check.frames());
         checkJson.addProperty("tolerance", HistogramCheck.TOLERANCE);
         checkJson.addProperty("maxRelativeError", check.maxRelativeError());
-        checkJson.addProperty("passed", check.passed());
+        checkJson.addProperty("passed", check.passed() && !result.overflowed());
+        checkJson.addProperty("comparable", !result.overflowed());
         for (HistogramCheck.Metric metric : check.metrics()) {
             JsonArray pair = new JsonArray();
             pair.add(metric.histogram());
@@ -296,7 +364,10 @@ public final class BenchRunner {
         JsonObject environmentJson = new JsonObject();
         environmentJson.add("start", environmentJson(startEnvironment));
         environmentJson.add("end", environmentJson(endEnvironment));
-        environmentJson.addProperty("stable", startEnvironment != null && startEnvironment.sameAs(endEnvironment));
+        environmentJson.addProperty("unfocusedTicks", unfocusedTicks);
+        environmentJson.addProperty("minimizedTicks", minimizedTicks);
+        environmentJson.addProperty("stable", startEnvironment != null && startEnvironment.sameAs(endEnvironment)
+                && unfocusedTicks == 0 && minimizedTicks == 0);
         json.add("environment", environmentJson);
         return json;
     }
@@ -310,9 +381,7 @@ public final class BenchRunner {
         json.addProperty("ramGiB", hardware.ramGiB());
         json.addProperty("heapMaxMiB", hardware.maxHeapBytes() >> 20);
         json.addProperty("java", System.getProperty("java.vm.name") + " " + Runtime.version());
-        json.addProperty("jvmFlags", ManagementFactory.getRuntimeMXBean().getInputArguments().stream()
-                .filter(arg -> arg.startsWith("-X"))
-                .collect(Collectors.joining(" ")));
+        json.addProperty("jvmFlags", JvmFlags.sanitize(ManagementFactory.getRuntimeMXBean().getInputArguments()));
         json.add("gl", GlProbe.probe());
         JsonObject options = new JsonObject();
         options.addProperty("renderDistance", minecraft.options.renderDistance().get());
@@ -347,7 +416,10 @@ public final class BenchRunner {
         } catch (RuntimeException | LinkageError e) {
             power = BenchEnvironment.Power.UNKNOWN;
         }
-        return new BenchEnvironment(power, minecraft.getWindow().getRefreshRate());
+        Window window = minecraft.getWindow();
+        Monitor monitor = window.findBestMonitor();
+        int refreshRate = monitor == null ? window.getRefreshRate() : monitor.getCurrentMode().getRefreshRate();
+        return new BenchEnvironment(power, refreshRate, window.isFullscreen());
     }
 
     private static JsonObject environmentJson(BenchEnvironment environment) {
@@ -357,6 +429,7 @@ public final class BenchRunner {
         JsonObject json = new JsonObject();
         json.addProperty("power", environment.power().name().toLowerCase(Locale.ROOT));
         json.addProperty("refreshRate", environment.refreshRate());
+        json.addProperty("fullscreen", environment.fullscreen());
         return json;
     }
 

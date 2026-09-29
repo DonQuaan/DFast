@@ -109,7 +109,7 @@ public final class LatencyClientModule {
         }
         long now = System.nanoTime();
         Minecraft minecraft = Minecraft.getInstance();
-        switch (gate.next(now, minecraft.level, minecraft.screen == null && minecraft.isWindowActive())) {
+        switch (gate.next(now, minecraft.level, minecraft.screen == null && minecraft.getOverlay() == null && minecraft.isWindowActive())) {
             case RESET -> {
                 shortStats.reset();
                 longStats.reset();
@@ -133,16 +133,21 @@ public final class LatencyClientModule {
         }
     }
 
+    private static String seconds(FrameTimeStats.Summary summary) {
+        return Text.fixed(summary.spanNanos / 1_000_000_000.0, 0);
+    }
+
     private FormattedCharSequence[] hudLines() {
         summarize(shortSummary, longSummary);
         boolean limiting = limiter != null && limiter.active();
         FormattedCharSequence[] result = new FormattedCharSequence[limiting ? 6 : 5];
         result[0] = title.getVisualOrderText();
-        result[1] = Component.translatable(KEY_FPS, Text.fixed(shortSummary.averageFps, 0)).getVisualOrderText();
+        result[1] = Component.translatable(KEY_FPS, Text.fixed(shortSummary.averageFps, 0), seconds(shortSummary)).getVisualOrderText();
         result[2] = Component.translatable(KEY_FRAME,
                 Text.fixed(shortSummary.lastFrameMs, 2), Text.fixed(shortSummary.p99Ms, 2)).getVisualOrderText();
         result[3] = Component.translatable(KEY_LOW,
-                Text.fixed(longSummary.onePercentLowFps, 0), Text.fixed(longSummary.pointOnePercentLowFps, 0)).getVisualOrderText();
+                Text.fixed(longSummary.onePercentLowFps, 0), Text.fixed(longSummary.pointOnePercentLowFps, 0),
+                seconds(longSummary)).getVisualOrderText();
         result[4] = ownerLines[shownOwner().ordinal()].getVisualOrderText();
         if (limiting) {
             result[5] = Component.translatable(KEY_GPU_WAIT, Text.fixed(limiter.lastWaitNanos() / 1_000_000.0, 2)).getVisualOrderText();
