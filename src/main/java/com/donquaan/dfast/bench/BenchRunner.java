@@ -6,6 +6,8 @@ import com.donquaan.dfast.HardwareProfile;
 import com.donquaan.dfast.core.BenchSpec;
 import com.donquaan.dfast.core.CameraPath;
 import com.donquaan.dfast.core.FrameRecorder;
+import com.donquaan.dfast.core.FrameTimeStats;
+import com.donquaan.dfast.core.HistogramCheck;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
@@ -26,6 +28,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.tutorial.TutorialSteps;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -58,6 +61,7 @@ public final class BenchRunner {
     private final BenchSpec spec;
     private final Path outDir;
     private final FrameRecorder recorder;
+    private final FrameTimeStats live;
     private final double[] pose = new double[5];
     private Phase phase = Phase.WAIT_MENU;
     private CameraPath path;
@@ -70,11 +74,14 @@ public final class BenchRunner {
     private boolean pauseOnLostFocus;
     private boolean vsync;
     private int maxFps;
+    private TutorialSteps tutorialStep;
 
     private BenchRunner(BenchSpec spec, Path outDir) {
         this.spec = spec;
         this.outDir = outDir;
-        recorder = new FrameRecorder(Math.min(spec.durationSeconds() * MAX_FRAMES_PER_SECOND, MAX_RECORDED_FRAMES));
+        int capacity = Math.min(spec.durationSeconds() * MAX_FRAMES_PER_SECOND, MAX_RECORDED_FRAMES);
+        recorder = new FrameRecorder(capacity);
+        live = new FrameTimeStats((spec.durationSeconds() + 1L) * 1_000_000_000L, Math.min(capacity, 1 << 20));
     }
 
     public static void init(Path gameDir) {
@@ -103,6 +110,7 @@ public final class BenchRunner {
         long now = System.nanoTime();
         if (lastFrameNanos != 0L) {
             recorder.add(now - lastFrameNanos);
+            live.record(now, now - lastFrameNanos);
         }
         lastFrameNanos = now;
     }
@@ -114,7 +122,9 @@ public final class BenchRunner {
                     pauseOnLostFocus = minecraft.options.pauseOnLostFocus;
                     vsync = minecraft.options.enableVsync().get();
                     maxFps = minecraft.options.framerateLimit().get();
+                    tutorialStep = minecraft.options.tutorialStep;
                     optionsSaved = true;
+                    minecraft.options.tutorialStep = TutorialSteps.NONE;
                     minecraft.options.pauseOnLostFocus = false;
                     minecraft.options.enableVsync().set(false);
                     minecraft.options.framerateLimit().set(UNLIMITED_FPS);
@@ -183,6 +193,7 @@ public final class BenchRunner {
         int warmupTicks = spec.warmupSeconds() * TICKS_PER_SECOND;
         int endTicks = warmupTicks + spec.durationSeconds() * TICKS_PER_SECOND;
         if (ticks == warmupTicks) {
+            minecraft.getToasts().clear();
             lastFrameNanos = 0L;
             measuring = true;
         }
@@ -229,6 +240,7 @@ public final class BenchRunner {
             minecraft.options.pauseOnLostFocus = pauseOnLostFocus;
             minecraft.options.enableVsync().set(vsync);
             minecraft.options.framerateLimit().set(maxFps);
+            minecraft.options.tutorialStep = tutorialStep;
         }
         minecraft.stop();
     }
@@ -261,6 +273,19 @@ public final class BenchRunner {
         json.addProperty("onePercentLowFps", result.onePercentLowFps());
         json.addProperty("pointOnePercentLowFps", result.pointOnePercentLowFps());
         json.addProperty("overflowed", result.overflowed());
+        HistogramCheck check = HistogramCheck.of(live, recorder.frames());
+        JsonObject checkJson = new JsonObject();
+        checkJson.addProperty("frames", check.frames());
+        checkJson.addProperty("tolerance", HistogramCheck.TOLERANCE);
+        checkJson.addProperty("maxRelativeError", check.maxRelativeError());
+        checkJson.addProperty("passed", check.passed());
+        for (HistogramCheck.Metric metric : check.metrics()) {
+            JsonArray pair = new JsonArray();
+            pair.add(metric.histogram());
+            pair.add(metric.exact());
+            checkJson.add(metric.name(), pair);
+        }
+        json.add("histogramCheck", checkJson);
         return json;
     }
 

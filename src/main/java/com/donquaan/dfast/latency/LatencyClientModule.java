@@ -68,7 +68,7 @@ public final class LatencyClientModule {
         return result;
     }
 
-    public static void init(Path configDir) {
+    public static LatencyClientModule init(Path configDir) {
         LatencyConfig config = LatencyConfig.load(configDir.resolve("dfast-latency.properties"));
         RenderAheadPolicy.Owner owner = RenderAheadPolicy.owner(
                 FabricLoader.getInstance().isModLoaded("sodium"), config.renderQueueLimiter());
@@ -85,6 +85,21 @@ public final class LatencyClientModule {
             }
         });
         HudRenderCallback.EVENT.register((graphics, deltaTracker) -> module.onHud(graphics));
+        return module;
+    }
+
+    public void summarize(FrameTimeStats.Summary shortOut, FrameTimeStats.Summary longOut) {
+        shortStats.summarize(shortOut);
+        longStats.summarize(longOut);
+    }
+
+    public boolean hudEnabled() {
+        return config.hudEnabled();
+    }
+
+    public RenderAheadPolicy.Owner shownOwner() {
+        boolean limiting = limiter != null && limiter.active();
+        return owner == RenderAheadPolicy.Owner.DFAST && !limiting ? RenderAheadPolicy.Owner.OFF : owner;
     }
 
     private void onHud(GuiGraphics graphics) {
@@ -118,10 +133,8 @@ public final class LatencyClientModule {
     }
 
     private FormattedCharSequence[] hudLines() {
-        shortStats.summarize(shortSummary);
-        longStats.summarize(longSummary);
+        summarize(shortSummary, longSummary);
         boolean limiting = limiter != null && limiter.active();
-        RenderAheadPolicy.Owner shown = owner == RenderAheadPolicy.Owner.DFAST && !limiting ? RenderAheadPolicy.Owner.OFF : owner;
         FormattedCharSequence[] result = new FormattedCharSequence[limiting ? 6 : 5];
         result[0] = title.getVisualOrderText();
         result[1] = Component.translatable(KEY_FPS, Text.fixed(shortSummary.averageFps, 0)).getVisualOrderText();
@@ -129,7 +142,7 @@ public final class LatencyClientModule {
                 Text.fixed(shortSummary.lastFrameMs, 2), Text.fixed(shortSummary.p99Ms, 2)).getVisualOrderText();
         result[3] = Component.translatable(KEY_LOW,
                 Text.fixed(longSummary.onePercentLowFps, 0), Text.fixed(longSummary.pointOnePercentLowFps, 0)).getVisualOrderText();
-        result[4] = ownerLines[shown.ordinal()].getVisualOrderText();
+        result[4] = ownerLines[shownOwner().ordinal()].getVisualOrderText();
         if (limiting) {
             result[5] = Component.translatable(KEY_GPU_WAIT, Text.fixed(limiter.lastWaitNanos() / 1_000_000.0, 2)).getVisualOrderText();
         }

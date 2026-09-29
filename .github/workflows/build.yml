@@ -52,6 +52,65 @@ jobs:
           path: build/libs/dfast-*.jar
           if-no-files-found: error
 
+  bench-smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ 21, 25 ]
+        sodium: [ none, 0.6.13, 0.8.13 ]
+        include:
+          - sodium: 0.6.13
+            url: https://cdn.modrinth.com/data/AANobbMI/versions/u1OEbNKx/sodium-fabric-0.6.13%2Bmc1.21.1.jar
+            sha512: 13032e064c554fc8671573dadb07bc70e6ea2f68706c65c086c4feb1d2f664346a3414cbf9d1367b42b8d063a35e40f2f967ef9af31642e1f0093b852161fe91
+          - sodium: 0.8.13
+            url: https://cdn.modrinth.com/data/AANobbMI/versions/SMxNOGZ6/sodium-fabric-0.8.13%2Bmc1.21.1.jar
+            sha512: 8614a374593698069a80ac74de8cd9c28f3928d16819a0e0d6320b538e823f7e54e8be06d5ea5a9c268beb0e02073209d1f831a02dede851588b972367680853
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: |
+            25
+            21
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Install virtual display and software OpenGL
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dri mesa-utils
+
+      - name: Add Sodium
+        if: matrix.sodium != 'none'
+        run: |
+          mkdir -p run/mods
+          curl -fsSL --retry 3 -o run/mods/sodium.jar "${{ matrix.url }}"
+          echo "${{ matrix.sha512 }}  run/mods/sodium.jar" | sha512sum -c -
+
+      - name: Run bench in the real client
+        run: >
+          xvfb-run -a -s "-screen 0 1280x720x24"
+          ./gradlew runBench --stacktrace
+          -Pdfast.bench=ci
+          -Pdfast.runJava=${{ matrix.java }}
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME_${{ matrix.java }}_X64
+
+      - name: Check bench result
+        run: python3 .github/scripts/check_bench.py run/dfast/bench
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bench-java${{ matrix.java }}-sodium-${{ matrix.sodium }}
+          path: |
+            run/dfast/
+            run/logs/latest.log
+            run/crash-reports/
+          if-no-files-found: warn
+
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')

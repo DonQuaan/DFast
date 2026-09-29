@@ -15,6 +15,11 @@ repositories {
 
 loom {
     runs {
+        configureEach {
+            if (project.hasProperty('dfast.ctl')) {
+                vmArg '-Ddfast.ctl=true'
+            }
+        }
         bench {
             client()
             configName = 'DFast Bench'
@@ -39,6 +44,15 @@ processResources {
     inputs.property 'version', project.version
     filesMatching('fabric.mod.json') {
         expand 'version': project.version
+    }
+}
+
+tasks.withType(net.fabricmc.loom.task.RunGameTask).configureEach {
+    def runJava = project.findProperty('dfast.runJava')
+    if (runJava) {
+        javaLauncher = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(runJava as int)
+        }
     }
 }
 
