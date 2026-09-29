@@ -19,6 +19,9 @@ loom {
             if (project.hasProperty('dfast.ctl')) {
                 vmArg '-Ddfast.ctl=true'
             }
+            if (project.hasProperty('dfast.jfr')) {
+                vmArg "-XX:StartFlightRecording=filename=${project.property('dfast.jfr')},settings=profile,dumponexit=true"
+            }
         }
         bench {
             client()

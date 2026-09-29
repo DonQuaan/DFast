@@ -3,7 +3,7 @@
   "id": "dfast",
   "version": "${version}",
   "name": "DFast",
-  "description": "Frame-time HUD and JVM launcher advice matched to your Java version and RAM. Leaves render-ahead control to Sodium when it is installed.",
+  "description": "Frame-time HUD with p99 and 1%/0.1% lows, a repeatable Bench Mode, and JVM launcher advice matched to your Java version and RAM. Leaves render-ahead control to Sodium when it is installed.",
   "authors": [ "DonQuaan (yangdawn)" ],
   "contact": {
     "homepage": "https://github.com/DonQuaan/DFast",
